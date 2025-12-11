@@ -14,17 +14,31 @@ import glob
 def load_graph_from_mtx(path):
     """
     Loads a graph from a .mtx file.
-    [cite_start]Ensures the graph is Undirected (simple) as required by the DRDP paper[cite: 32].
+    - If Square: Loads as standard Adjacency Matrix.
+    - If Rectangular: Loads as Biadjacency Matrix (Bipartite Graph).
+    Ensures the graph is Undirected (simple) as required by the DRDP paper.
     """
     try:
-        M = mmread(path).tocsr()
-        # Convert to unweighted (pattern) if needed
+        M = mmread(path)
+        if hasattr(M, 'tocsr'):
+            M = M.tocsr()
+            
+        # Standardize data to 1 (unweighted)
         if M.dtype not in [np.int32, np.int64, np.float32, np.float64]:
             M.data[:] = 1
             
-        # FORCE UNDIRECTED: create_using=nx.Graph
-        # This fixes issues where 'neighbors()' only returns outgoing edges in directed sparse matrices
-        G = nx.from_scipy_sparse_array(M, create_using=nx.Graph)
+        rows, cols = M.shape
+
+        if rows == cols:
+            # Square -> Adjacency Matrix
+            G = nx.from_scipy_sparse_array(M, create_using=nx.Graph)
+        else:
+            # Rectangular -> Biadjacency Matrix (Bipartite Graph)
+            # This handles ash958 (958x292) -> 1250 nodes
+            G = nx.bipartite.from_biadjacency_matrix(M)
+            # Note: NetworkX bipartite creates nodes 0..rows-1 and rows..rows+cols-1
+            # We convert to simple Graph to remove bipartite attribute constraints for the solver
+            G = nx.Graph(G)
         
         # Remove self-loops (simple graph requirement)
         G.remove_edges_from(nx.selfloop_edges(G))
@@ -33,7 +47,6 @@ def load_graph_from_mtx(path):
     except Exception as e:
         print(f"Error loading {path}: {e}")
         return None
-
 # =====================================================================
 # Double Roman Domination Solver
 # =====================================================================
